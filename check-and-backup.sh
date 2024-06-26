@@ -1,14 +1,26 @@
 #!/bin/bash
 set -e
 
-# Dossier à vérifier
-TARGET_DIR="/home/opc/minecraft-pufferpanel/servers/dffe1cd5/cornichons/"
+# Verify presence of .env.dist and .env. Copy if does not exist
+if [ ! -f ".env" ]; then
+  if [ ! -f ".env.dist"]; then
+    log "Error : No .env.dist file found" && exit 1
+  fi
+  cp .env.dist .env
+fi
+
+set -a
+source .env
+set +a
+
+# Dossier world du serveur à vérifier
+WORLD_DIR=${WORLD_DIR:-./servers/xxxx0xx0/myworld/}
 # Fichier pour stocker la checksum de comparaison (nouvel emplacement)
-CHECKSUM_FILE="/home/opc/minecraft-rclone-gdrive-backup/checksum.sha256"
+CHECKSUM_FILE=${CHECKSUM_FILE:-./checksum.sha256}
 # Script de sauvegarde
-BACKUP_SCRIPT="/home/opc/minecraft-rclone-gdrive-backup/backup-minecraft-server.sh"
+BACKUP_SCRIPT=${BACKUP_SCRIPT:-./backup-minecraft-server.sh}
 # Fichier de log
-LOG_FILE="/home/opc/minecraft-rclone-gdrive-backup/check_and_backup.log"
+LOG_FILE=${LOG_FILE:-./check_and_backup.log}
 
 # Fonction pour écrire des messages dans le fichier de log avec la date
 log() {
@@ -19,8 +31,8 @@ log() {
 log "Début du script de vérification et de sauvegarde."
 
 # Générer une nouvelle checksum
-log "Génération de la nouvelle checksum pour le dossier : $TARGET_DIR"
-NEW_CHECKSUM=$(find "$TARGET_DIR" -type f -exec sha256sum {} \; | sha256sum | awk '{print $1}')
+log "Génération de la nouvelle checksum pour le dossier : $WOLD_DIR"
+NEW_CHECKSUM=$(find "$WORLD_DIR" -type f -exec sha256sum {} \; | sha256sum | awk '{print $1}')
 log "Nouvelle checksum générée : $NEW_CHECKSUM"
 
 # Vérifier et créer le fichier de checksum de comparaison s'il n'existe pas
