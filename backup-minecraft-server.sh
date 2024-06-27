@@ -1,28 +1,14 @@
 #!/bin/bash
 set -e
 
-# Verify presence of .env.dist and .env. Copy if does not exist
-if [ ! -f ".env" ]; then
-  if [ ! -f ".env.dist" ]; then
-    log "Error : No .env.dist file found" && exit 1
-  fi
-  cp .env.dist .env
-fi
+source utils/load-env.sh
+source utils/logs.sh
 
-set -a
-source .env
-set +a
 
 # Fonction pour écrire des messages dans le fichier de log avec la date
 log() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [backup] - $1"
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [backup] - $1" >> "$LOG_FILE"
+    _log "$1" "backup"
 }
-
-var_notfound() {
-    log "Error : $1 is not set. Please use .env from .env.dist" && exit 1
-}
-
 
 [ -z "${WORLD_DIR}" ] && var_notfound "WORLD_DIR"
 [ -z "${BACKUP_LOCAL_FOLDER}" ] && var_notfound "BACKUP_LOCAL_FOLDER"
@@ -34,15 +20,6 @@ _CURRENT_DATE=$(date +"%Y-%m-%d_%H-%M-%S")
 _BACKUP_NAME=backup-${_CURRENT_DATE}.tar.gz
 _BACKUP_LOCAL_PATH=${BACKUP_LOCAL_FOLDER}/${_BACKUP_NAME}
 
-# Fonction pour écrire des messages dans le fichier de log avec la date
-log() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [backup] - $1"
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [backup] - $1" >> "$LOG_FILE"
-}
-
-var_notfound() {
-    log "Error : $1 is not set. Please use .env from .env.dist" && exit 1
-}
 
 
 # Vérifie si le dossier de sauvegarde existe
@@ -56,7 +33,7 @@ mkdir -p ${BACKUP_LOCAL_FOLDER}
 if [ -f "${_BACKUP_LOCAL_PATH}" ]; then
     log "Warning : Backup déjà existante. Utilisation de celle-ci (${_BACKUP_LOCAL_PATH})"
 else
-    log "Création d'une backup ${_BACKUP_LOCAL_PATH} du serveur à partir de ${WORLD_DIR}"
+    log "Création d'une backup du monde Minecraft à partir de ${WORLD_DIR}"
     tar -czf ${_BACKUP_LOCAL_PATH} -C ${WORLD_DIR} .
     # pv version : tar cf - ${WORLD_DIR}/* -P | pv -s $(du -sb ${WORLD_DIR}/* | awk '{print $1}') | gzip > ${_BACKUP_LOCAL_PATH}
     log "Backup créée : ${_BACKUP_LOCAL_PATH}"
@@ -93,7 +70,6 @@ rclone lsf --format "tsp" "${GDRIVE_REMOTE}:${BACKUP_REMOTE_FOLDER}" | grep -v '
         log "Déplacement de la sauvegarde $_FILE vers backup-$_PREVIOUS_DATE.tar.gz"
     fi
 done
-
-log "Résultat final du dossier de backup distant :"
-rclone ls ${GDRIVE_REMOTE}:
+result=$(rclone ls ${GDRIVE_REMOTE}:)
+log "Résultat final du dossier de backup distant : $result"
 
