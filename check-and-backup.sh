@@ -11,28 +11,26 @@ log() {
 }
 
 # Vérifier la présence des variables nécessaires
-[ -z "${WORLD_DIR}" ] && var_notfound "WORLD_DIR"
+[ -z "${SERVERS_DIR}" ] && var_notfound "SERVERS_DIR"
+[ -z "${PUFFERPANEL_SERVER_ID}" ] && var_notfound "PUFFERPANEL_SERVER_ID"
 [ -z "${BACKUP_LOCAL_FOLDER}" ] && var_notfound "BACKUP_LOCAL_FOLDER"
 [ -z "${GDRIVE_REMOTE}" ] && var_notfound "GDRIVE_REMOTE"
 [ -z "${BACKUP_REMOTE_FOLDER}" ] && var_notfound "BACKUP_REMOTE_FOLDER"
 
 log "Vérification de modification effectuées sur le monde Minecraft."
 
+
 # Dossier à vérifier
-TARGET_DIR="${WORLD_DIR}"
-# Fichier pour stocker la checksum de comparaison (nouvel emplacement)
-CHECKSUM_FILE="${CHECKSUM_FILE}"
-# Script de sauvegarde
-BACKUP_SCRIPT="${BACKUP_SCRIPT}"
+_WORLD_DIR=${SERVERS_DIR}/${PUFFERPANEL_SERVER_ID}
 
 # Vérifie si le dossier cible existe
-if [ ! -d "$TARGET_DIR" ]; then
-    log "Erreur : Le dossier cible n'existe pas (${TARGET_DIR})"
+if [ ! -d "$_WORLD_DIR" ]; then
+    log "Erreur : Le dossier cible n'existe pas (${_WORLD_DIR})"
     exit 1
 fi
 
 # Générer une nouvelle checksum
-NEW_CHECKSUM=$(find "$TARGET_DIR" -type f -exec sha256sum {} \; | sha256sum | awk '{print $1}')
+NEW_CHECKSUM=$(find "$_WORLD_DIR" -type f -exec sha256sum {} \; | sha256sum | awk '{print $1}')
 
 # Vérifier et créer le fichier de checksum de comparaison s'il n'existe pas
 if [ ! -f "$CHECKSUM_FILE" ]; then

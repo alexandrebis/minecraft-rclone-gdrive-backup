@@ -10,7 +10,8 @@ log() {
     _log "$1" "backup"
 }
 
-[ -z "${WORLD_DIR}" ] && var_notfound "WORLD_DIR"
+[ -z "${SERVERS_DIR}" ] && var_notfound "SERVERS_DIR"
+[ -z "${PUFFERPANEL_SERVER_ID}" ] && var_notfound "PUFFERPANEL_SERVER_ID"
 [ -z "${BACKUP_LOCAL_FOLDER}" ] && var_notfound "BACKUP_LOCAL_FOLDER"
 [ -z "${GDRIVE_REMOTE}" ] && var_notfound "GDRIVE_REMOTE"
 [ -z "${BACKUP_REMOTE_FOLDER}" ] && var_notfound "BACKUP_REMOTE_FOLDER"
@@ -19,12 +20,12 @@ NUM_BACKUPS_TO_KEEP="3"
 _CURRENT_DATE=$(date +"%Y-%m-%d_%H-%M-%S")
 _BACKUP_NAME=backup-${_CURRENT_DATE}.tar.gz
 _BACKUP_LOCAL_PATH=${BACKUP_LOCAL_FOLDER}/${_BACKUP_NAME}
-
+_WORLD_DIR=${SERVERS_DIR}/${PUFFERPANEL_SERVER_ID}
 
 
 # Vérifie si le dossier de sauvegarde existe
-if [ ! -d "${WORLD_DIR}" ]; then
-    log "Erreur : Dossier de sauvegarde du serveur non trouvé (${WORLD_DIR})"
+if [ ! -d "${_WORLD_DIR}" ]; then
+    log "Erreur : Dossier de sauvegarde du serveur non trouvé (${_WORLD_DIR})"
     exit 1
 fi
 
@@ -33,10 +34,9 @@ mkdir -p ${BACKUP_LOCAL_FOLDER}
 if [ -f "${_BACKUP_LOCAL_PATH}" ]; then
     log "Warning : Backup déjà existante. Utilisation de celle-ci (${_BACKUP_LOCAL_PATH})"
 else
-    log "Création d'une backup du monde Minecraft à partir de ${WORLD_DIR}"
-    tar -czf ${_BACKUP_LOCAL_PATH} -C ${WORLD_DIR} .
-    # pv version : tar cf - ${WORLD_DIR}/* -P | pv -s $(du -sb ${WORLD_DIR}/* | awk '{print $1}') | gzip > ${_BACKUP_LOCAL_PATH}
-    log "Backup créée : ${_BACKUP_LOCAL_PATH}"
+    log "Création d'une backup du monde Minecraft à partir de ${_WORLD_DIR}"
+    tar -czf ${_BACKUP_LOCAL_PATH} -C ${_WORLD_DIR} .
+    # pv version : tar cf - ${_WORLD_DIR}/* -P | pv -s $(du -sb ${_WORLD_DIR}/* | awk '{print $1}') | gzip > ${_BACKUP_LOCAL_PATH}
 fi
 
 # Copie la backup sur Google Drive
@@ -44,9 +44,10 @@ if [ ! -f "${_BACKUP_LOCAL_PATH}" ]; then
     log "Erreur : Backup non trouvée ${_BACKUP_LOCAL_PATH}. Fin du script"
     exit 1
 fi
-
+log "Upload de la backuo vers le cloud..."
 if rclone copyto --progress "${_BACKUP_LOCAL_PATH}" "${GDRIVE_REMOTE}:${BACKUP_REMOTE_FOLDER}/${_BACKUP_NAME}"; then
-    log "Copie de la backup avec succès vers le cloud : ${GDRIVE_REMOTE}:${BACKUP_REMOTE_FOLDER}/${_BACKUP_NAME}"
+    log "Upload de la backup vers le cloud réussie : ${GDRIVE_REMOTE}:${BACKUP_REMOTE_FOLDER}/${_BACKUP_NAME}"
+    rm ${_BACKUP_LOCAL_PATH}
 else
     log "Erreur : La copie de la backup vers le cloud a échoué."
     exit 1
