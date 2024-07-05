@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
 
+# Charger les variables d'environnement du fichier .env
 source utils/load-env.sh
 source utils/logs.sh
 
@@ -9,68 +10,89 @@ log() {
     _log "$1" "deploy-backup"
 }
 
-log "Début du déploiement de la sauvegarde"
+# Vérifier la présence des variables nécessaires
+[ -z "${TMP_DIR}" ] && log "Erreur : Variable TMP_DIR non définie dans le fichier .env" && exit 1
+[ -z "${SERVERS_DIR}" ] && log "Erreur : Variable SERVERS_DIR non définie dans le fichier .env" && exit 1
 
-# Chemins
-BACKUP_ARCHIVE=$1
-TARGET_DIR="${TARGET_DIR:-/home/opc/minecraft-pufferpanel/servers}"
+BACKUP_FILE=$1
+OVERWRITE=false
+if [[ "$2" == "--overwrite" ]]; then
+    OVERWRITE=true
+fi
 
-# Vérifier si l'archive de sauvegarde est spécifiée
-if [ -z "$BACKUP_ARCHIVE" ]; then
-    log "Erreur : Aucune archive de sauvegarde spécifiée"
+# Vérification de la présence du fichier de backup
+if [ ! -f "${BACKUP_FILE}" ]; then
+    log "Erreur : Fichier de backup non trouvé (${BACKUP_FILE})"
     exit 1
 fi
 
-# Vérifier si l'archive de sauvegarde existe
-if [ ! -f "$BACKUP_ARCHIVE" ]; then
-    log "Erreur : Archive de sauvegarde non trouvée : $BACKUP_ARCHIVE"
-    exit 1
-fi
+# Décompression de l'archive de backup
+log "Décompression de l'archive de backup : ${BACKUP_FILE}"
+tar -xzf "${BACKUP_FILE}" -C "${TMP_DIR}"
 
-# Déployer la sauvegarde
-tar -xzf "$BACKUP_ARCHIVE" -C "$TARGET_DIR"
-log "Archive dézippée : $BACKUP_ARCHIVE"
+# Extraction de l'identifiant du server
+IDENTIFIER=$(basename "${BACKUP_FILE}" .tar.gz | sed 's/^backup-//')
 
-# Lire le fichier backup.info pour déterminer la plateforme
-platform=$(jq -r '.platform' "$TARGET_DIR/backup.info")
-
-# Fonction pour déployer une sauvegarde spécifique à PufferPanel
-deploy_pufferpanel_backup() {
-    identifier=$(jq -r '.pufferpanel.identifier' "$TARGET_DIR/backup.info")
-
-    # Vérifier la présence de l'entrée dans la base de données
-    exists=$(sqlite3 /home/opc/minecraft-pufferpanel/pufferpanel.db "SELECT 1 FROM servers WHERE identifier='$identifier';")
-
-    if [ -z "$exists" ]; then
-        name=$(jq -r '.name' "$TARGET_DIR/backup.info")
-        ip=$(jq -r '.ip' "$TARGET_DIR/backup.info")
-        port=$(jq -r '.port' "$TARGET_DIR/backup.info")
-        type=$(jq -r '.type' "$TARGET_DIR/backup.info")
-
-        sqlite3 /home/opc/minecraft-pufferpanel/pufferpanel.db <<EOF
-INSERT INTO servers (name, identifier, ip, port, type, created_at, updated_at) 
-VALUES ('$name', '$identifier', '$ip', $port, '$type', datetime('now'), datetime('now'));
-EOF
-        log "Ajouté serveur: $name ($identifier)"
-    fi
-
-    # Déplacer le dossier dézippé et le fichier JSON associé
-    mv "$TARGET_DIR/$identifier" "/home/opc/minecraft-pufferpanel/servers/"
-    mv "$TARGET_DIR/$identifier.json" "/home/opc/minecraft-pufferpanel/servers/"
-
-    log "Sauvegarde PufferPanel déployée : $identifier"
-}
-
-# Déployer en fonction de la plateforme
-case $platform in
-    "pufferpanel")
-        deploy_pufferpanel_backup
-        ;;
-    *)
-        log "Erreur : Plateforme inconnue : $platform"
+# Vérification de la présence des fichiers nécessaires dans l'archive
+REQUIRED_FILES=("backup.info" "${IDENTIFIER}/" "${IDENTIFIER}.json" "${IDENTIFIER}.md5")
+for file in "${REQUIRED_FILES[@]}"; do
+    if [ ! -e "${TMP_DIR}/${file}" ]; then
+        log "Erreur : Fichier requis ${file} non trouvé dans l'archive"
         exit 1
-        ;;
-esac
+    fi
+done
 
-log "Déploiement de la sauvegarde terminé depuis $BACKUP_ARCHIVE"
+# Génération du fichier .md5 si manquant
+if [ ! -f "${TMP_DIR}/${IDENTIFIER}.md5" ]; then
+    log "Fichier .md5 manquant, génération en cours"
+    find "${TMP_DIR}/${IDENTIFIER}" -type f -exec md5sum {} \; | sort -k 2 | md5sum | awk '{print $1}' > "${TMP_DIR}/${IDENTIFIER}.md5"
+fi
 
+# Vérification de la présence d'un dossier avec cet identifier dans SERVERS_DIR
+if [ -d "${SERVERS_DIR}/${IDENTIFIER}" ]; then
+    log "Dossier ${IDENTIFIER} déjà présent dans ${SERVERS_DIR}"
+
+    # Comparaison des checksums
+    EXISTING_MD5=$(cat "${SERVERS_DIR}/${IDENTIFIER}.md5")
+    NEW_MD5=$(cat "${TMP_DIR}/${IDENTIFIER}.md5")
+
+    if [ "$EXISTING_MD5" == "$NEW_MD5" ]; then
+        if [ "$OVERWRITE" = true ]; then
+            cp "${TMP_DIR}/${IDENTIFIER}.json" "${SERVERS_DIR}/${IDENTIFIER}.json"
+            log "Checksum identique. Mise à jour non-interactive des fichiers de configuration."
+        else
+            read -p "Checksum identique. Voulez-vous mettre à jour l'entrée en base et le fichier JSON? (y/N): " response
+            if [[ "$response" =~ ^[Yy]$ ]]; then
+                cp "${TMP_DIR}/${IDENTIFIER}.json" "${SERVERS_DIR}/${IDENTIFIER}.json"
+                log "Mise à jour de l'entrée en base et du fichier JSON effectuée."
+            else
+                log "Aucune mise à jour effectuée."
+            fi
+        fi
+    else
+        if [ "$OVERWRITE" = true ]; then
+            rm -rf "${SERVERS_DIR:?}/${IDENTIFIER}"
+            cp -r "${TMP_DIR}/${IDENTIFIER}" "${SERVERS_DIR}/${IDENTIFIER}"
+            cp "${TMP_DIR}/${IDENTIFIER}.json" "${SERVERS_DIR}/${IDENTIFIER}.json"
+            log "Checksum différente. Remplacement non-interactive du dossier et des fichiers de configuration."
+        else
+            read -p "Checksum différente. Voulez-vous remplacer le dossier existant? (y/N): " response
+            if [[ "$response" =~ ^[Yy]$ ]]; then
+                rm -rf "${SERVERS_DIR:?}/${IDENTIFIER}"
+                cp -r "${TMP_DIR}/${IDENTIFIER}" "${SERVERS_DIR}/${IDENTIFIER}"
+                cp "${TMP_DIR}/${IDENTIFIER}.json" "${SERVERS_DIR}/${IDENTIFIER}.json"
+                log "Dossier et fichiers de configuration remplacés."
+            else
+                log "Aucun remplacement effectué."
+            fi
+        fi
+    fi
+else
+    log "Aucune entrée trouvée dans SERVERS_DIR. Création de la nouvelle entrée."
+    cp -r "${TMP_DIR}/${IDENTIFIER}" "${SERVERS_DIR}/${IDENTIFIER}"
+    cp "${TMP_DIR}/${IDENTIFIER}.json" "${SERVERS_DIR}/${IDENTIFIER}.json"
+    cp "${TMP_DIR}/${IDENTIFIER}.md5" "${SERVERS_DIR}/${IDENTIFIER}.md5"
+    log "Nouvelle entrée créée dans SERVERS_DIR."
+fi
+
+log "Déploiement de la backup terminé."
